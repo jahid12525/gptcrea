@@ -115,7 +115,7 @@ async function createNewSession() {
                 }
             }
             console.log(`Email not arrived yet (attempt ${attempt}/30). Refreshing inbox...`);
-            await mailwavePage.locator('#refresh').click().catch(() => {});
+            await mailwavePage.locator('#refresh').click({ force: true, timeout: 2000 }).catch(() => {});
             await mailwavePage.waitForTimeout(5000);
         }
 
