@@ -42,16 +42,28 @@ async function getOTP(targetEmail) {
             // Lock mailbox to ensure state is synchronized and fresh
             let lock = await client.getMailboxLock('INBOX');
             try {
-                // Search for any messages containing "ChatGPT" in the subject
+                // Search specifically for targetEmail first (server-side filter)
                 let uids = await client.search({
-                    subject: 'ChatGPT'
+                    subject: 'ChatGPT',
+                    to: targetEmail
                 });
 
-                console.log(`Found ${uids.length} email(s) with 'ChatGPT' in the subject.`);
+                // Fallback: search unseen emails if no direct match found
+                if (!uids || uids.length === 0) {
+                    uids = await client.search({
+                        subject: 'ChatGPT',
+                        unseen: true
+                    });
+                }
+
+                console.log(`Found ${uids.length} potential email(s) for OTP check.`);
 
                 if (uids && uids.length > 0) {
-                    // Iterate from newest to oldest
-                    for (let i = uids.length - 1; i >= 0; i--) {
+                    // Limit processing to at most the 5 most recent matching emails
+                    const maxEmailsToCheck = 5;
+                    const startIndex = Math.max(0, uids.length - maxEmailsToCheck);
+
+                    for (let i = uids.length - 1; i >= startIndex; i--) {
                         const uid = uids[i];
                         const msg = await client.fetchOne(uid, { source: true });
                         
@@ -66,7 +78,7 @@ async function getOTP(targetEmail) {
                             ? parsed.to.value.map(val => (val.address || '').toLowerCase()) 
                             : [];
 
-                        console.log(`UID: ${uid} | Subject: "${parsed.subject}" | Recipient Header: "${toText}"`);
+                        console.log(`Checking UID: ${uid} | Recipient Header: "${toText}"`);
 
                         // Verify if target email is the recipient
                         const isMatch = toText.includes(targetEmail.toLowerCase()) || 
