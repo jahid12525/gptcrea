@@ -249,33 +249,46 @@ async function getOTP(targetEmail) {
         console.log('Clicking the send button...');
         await sendBtn.click();
 
-        console.log('Waiting for image generation to complete (this might take 30-60 seconds)...');
-        // Wait for the generated image element to be visible
-        const generatedImg = page.locator('img[alt^="Generated image:"], [data-testid^="conversation-turn-"] img[src*="backend-api/estuary/content"]');
-        await generatedImg.waitFor({ state: 'visible', timeout: 0 });
+        console.log('Waiting for image generation to complete (waiting for Share button to appear)...');
+        // Wait for the Share button overlay of the generated image to be visible
+        const shareBtn = page.locator('button[aria-label="Share this image"]').first();
+        await shareBtn.waitFor({ state: 'visible', timeout: 0 });
 
-        console.log('Image generation complete! Waiting for loading transition...');
+        console.log('Image generation complete! Waiting 2 seconds for transition...');
         await page.waitForTimeout(2000);
 
         // Screenshot 9: Final response screen with the wallpaper visible
         await page.screenshot({ path: 'screenshots/9_final_result.png', fullPage: true });
         console.log('Final conversation screenshot captured.');
 
-        // Get the image URL (src)
-        const imgSrc = await generatedImg.first().getAttribute('src');
-        if (imgSrc) {
-            console.log(`Downloading generated wallpaper from: ${imgSrc}`);
-            // Use page.request.get to download using the page's cookies and headers
-            const response = await page.request.get(imgSrc);
-            if (response.ok()) {
-                const buffer = await response.body();
-                fs.writeFileSync('screenshots/wallpaper.png', buffer);
-                console.log('Wallpaper successfully saved to screenshots/wallpaper.png');
-            } else {
-                console.error(`Failed to download wallpaper. Status: ${response.status()}`);
-            }
-        } else {
-            console.error('Could not retrieve image source URL.');
+        console.log('Hovering over image container and clicking the Share button...');
+        const imageContainer = page.locator('.group\\/imagegen-image').first();
+        if (await imageContainer.count() > 0) {
+            await imageContainer.hover().catch(() => {});
+        }
+        await shareBtn.click();
+
+        console.log('Waiting for share modal to open (waiting for Download button)...');
+        const downloadBtn = page.locator('button:has-text("Download")').first();
+        await downloadBtn.waitFor({ state: 'visible', timeout: 0 });
+
+        // Screenshot 10: Share modal open
+        await page.screenshot({ path: 'screenshots/10_share_modal.png' });
+
+        console.log('Clicking the download button inside the share modal...');
+        // Start waiting for the download event from the browser
+        const downloadPromise = page.waitForEvent('download');
+        await downloadBtn.click();
+        const download = await downloadPromise;
+
+        // Save the download to screenshots/wallpaper.png
+        await download.saveAs('screenshots/wallpaper.png');
+        console.log('Wallpaper successfully downloaded and saved to screenshots/wallpaper.png!');
+
+        // Close the modal
+        const closeBtn = page.locator('button[data-testid="close-button"]').first();
+        if (await closeBtn.count() > 0) {
+            await closeBtn.click().catch(() => {});
         }
 
     } catch (error) {
