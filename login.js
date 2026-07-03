@@ -131,7 +131,11 @@ async function createNewSession() {
     
     const context = await browser.newContext({
         viewport: { width: 1280, height: 800 },
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        recordVideo: {
+            dir: 'wallpapers/',
+            size: { width: 1280, height: 800 }
+        }
     });
 
     const page = await context.newPage();
@@ -223,7 +227,16 @@ async function createNewSession() {
     } catch (error) {
         console.error('An error occurred during account creation:', error);
         await page.screenshot({ path: 'wallpapers/error_signup.png', fullPage: true });
+        const video = page.video();
         await browser.close();
+        if (video) {
+            const videoPath = await video.path().catch(() => null);
+            if (videoPath && fs.existsSync(videoPath)) {
+                const newVideoPath = path.join('wallpapers', 'error_signup_record.webm');
+                fs.renameSync(videoPath, newVideoPath);
+                console.log(`Saved error signup video record to: ${newVideoPath}`);
+            }
+        }
         throw error;
     }
 }
@@ -257,6 +270,7 @@ async function createNewSession() {
 
     let currentSession = null;
     let generationsOnCurrentAccount = 0;
+    let accountIndex = 1;
 
     for (let i = 0; i < prompts.length; i++) {
         let prompt = prompts[i];
@@ -276,7 +290,18 @@ async function createNewSession() {
         if (!currentSession || generationsOnCurrentAccount >= 5) {
             if (currentSession) {
                 console.log('Reached 5 generations limit on this account. Closing browser and rotating account...');
+                const page = currentSession.page;
+                const video = page.video();
                 await currentSession.browser.close();
+                if (video) {
+                    const videoPath = await video.path().catch(() => null);
+                    if (videoPath && fs.existsSync(videoPath)) {
+                        const newVideoPath = path.join('wallpapers', `account_${accountIndex}_record.webm`);
+                        fs.renameSync(videoPath, newVideoPath);
+                        console.log(`Saved account video record to: ${newVideoPath}`);
+                    }
+                }
+                accountIndex++;
             }
             try {
                 currentSession = await createNewSession();
@@ -353,7 +378,17 @@ async function createNewSession() {
     }
 
     if (currentSession) {
+        const page = currentSession.page;
+        const video = page.video();
         await currentSession.browser.close();
+        if (video) {
+            const videoPath = await video.path().catch(() => null);
+            if (videoPath && fs.existsSync(videoPath)) {
+                const newVideoPath = path.join('wallpapers', `account_${accountIndex}_record.webm`);
+                fs.renameSync(videoPath, newVideoPath);
+                console.log(`Saved account video record to: ${newVideoPath}`);
+            }
+        }
         console.log('\nAll prompts processed. Browser closed.');
     }
 })();
