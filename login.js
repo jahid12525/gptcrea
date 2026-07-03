@@ -62,14 +62,13 @@ async function getOTP(targetEmail, sinceUid) {
             
             const lock = await client.getMailboxLock('INBOX');
             try {
-                // Search ONLY by subject — Gmail IMAP does NOT reliably filter by
-                // plus-address aliases (e.g. to: holaexplainer+xyz@gmail.com).
-                // Instead we use sinceUid to only look at emails that arrived
-                // AFTER we submitted the registration form.
+                // IMPORTANT: Pass { uid: true } so search() returns real UIDs,
+                // not sequence numbers. Without this, the uid range and fetchOne
+                // both operate on sequence numbers which are completely different values.
                 const uids = await client.search({
                     subject: 'ChatGPT verification',
                     uid: `${sinceUid + 1}:*`   // only UIDs newer than our snapshot
-                });
+                }, { uid: true });
 
                 console.log(`Found ${uids.length} new ChatGPT email(s) since UID ${sinceUid}.`);
 
@@ -77,10 +76,9 @@ async function getOTP(targetEmail, sinceUid) {
                     // Newest email is last in the list
                     for (let i = uids.length - 1; i >= 0; i--) {
                         const uid = uids[i];
-                        // Skip emails that are older than our snapshot (safety check)
-                        if (uid <= sinceUid) continue;
 
-                        const msg = await client.fetchOne(uid, { source: true });
+                        // Fetch by UID, not sequence number
+                        const msg = await client.fetchOne(uid, { source: true }, { uid: true });
                         const parsed = await simpleParser(msg.source);
                         const text = parsed.text || '';
                         const html = parsed.html || '';
@@ -141,20 +139,10 @@ async function createNewSession() {
         const email = `holaexplainer+${randomString}@gmail.com`;
         console.log(`Registering account with email: ${email}`);
 
-        await emailInput.fill(email);
-        await emailInput.press('Enter');
-
-        // Fallback: If still on the same page after 2 seconds, click the Continue button directly
-        await page.waitForTimeout(2000);
-        const continueBtn = page.locator('button[type="submit"]:has-text("Continue"), button:has-text("Continue")');
-        if (await continueBtn.count() > 0 && await continueBtn.isVisible()) {
-            console.log('Clicking the Continue button directly...');
-            await continueBtn.click();
-        }
-
-        // Snapshot the current max UID BEFORE the OTP email arrives.
-        // We use a fresh IMAP connection just for the snapshot.
-        console.log('Snapshotting inbox max UID before OTP email arrives...');
+        // Snapshot inbox BEFORE submitting the email — the OTP can arrive within
+        // milliseconds of clicking Continue, so we must record the current max UID
+        // before we trigger the registration email to guarantee we never miss it.
+        console.log('Snapshotting inbox max UID before submitting email...');
         const snapshotClient = new ImapFlow({
             host: 'imap.gmail.com',
             port: 993,
@@ -165,7 +153,18 @@ async function createNewSession() {
         await snapshotClient.connect();
         const sinceUid = await getMaxUID(snapshotClient);
         await snapshotClient.logout();
-        console.log(`Inbox snapshot UID: ${sinceUid}. Any email with UID > ${sinceUid} is new.`);
+        console.log(`Inbox snapshot UID: ${sinceUid}. Any OTP email with UID > ${sinceUid} is new.`);
+
+        await emailInput.fill(email);
+        await emailInput.press('Enter');
+
+        // Fallback: If still on the same page after 2 seconds, click the Continue button directly
+        await page.waitForTimeout(2000);
+        const continueBtn = page.locator('button[type="submit"]:has-text("Continue"), button:has-text("Continue")');
+        if (await continueBtn.count() > 0 && await continueBtn.isVisible()) {
+            console.log('Clicking the Continue button directly...');
+            await continueBtn.click();
+        }
 
         console.log('Waiting for verification page (waiting for code input)...');
         const codeInput = page.locator('input[name="code"], input[placeholder="Code"], input[id$="-code"]');
