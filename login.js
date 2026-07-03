@@ -1,0 +1,204 @@
+const { chromium } = require('playwright-extra');
+const stealth = require('puppeteer-extra-plugin-stealth')();
+const { ImapFlow } = require('imapflow');
+
+chromium.use(stealth);
+
+function generateRandomString(length) {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
+
+async function getOTP(targetEmail) {
+    if (!process.env.GMAIL_APP_PASSWORD) {
+        throw new Error('GMAIL_APP_PASSWORD environment variable is not set!');
+    }
+
+    const client = new ImapFlow({
+        host: 'imap.gmail.com',
+        port: 993,
+        secure: true,
+        auth: {
+            user: 'holaexplainer@gmail.com',
+            pass: process.env.GMAIL_APP_PASSWORD
+        },
+        logger: false
+    });
+
+    await client.connect();
+    console.log('Connected to Gmail IMAP server successfully.');
+
+    // Select Inbox
+    let lock = await client.getMailboxLock('INBOX');
+    try {
+        // Try up to 30 attempts, checking every 5 seconds (2.5 minutes total)
+        for (let attempt = 1; attempt <= 30; attempt++) {
+            console.log(`Checking inbox for OTP (Attempt ${attempt}/30)...`);
+            
+            // Search for messages matching the subject
+            let uids = await client.search({
+                subject: 'Your temporary ChatGPT verification code'
+            });
+
+            if (uids && uids.length > 0) {
+                // Iterate from newest (last element) to oldest
+                for (let i = uids.length - 1; i >= 0; i--) {
+                    const uid = uids[i];
+                    const msg = await client.fetchOne(uid, { envelope: true, source: true });
+                    const envelope = msg.envelope;
+                    const bodyText = msg.source.toString();
+
+                    const toAddress = envelope.to && envelope.to[0] 
+                        ? `${envelope.to[0].address}@${envelope.to[0].domain}` 
+                        : '';
+                    
+                    // Verify if target email is the recipient or contained in body
+                    if (toAddress.toLowerCase() === targetEmail.toLowerCase() || bodyText.includes(targetEmail)) {
+                        // Extract 6-digit OTP code
+                        const otpRegex = /\b\d{6}\b/;
+                        const match = bodyText.match(otpRegex);
+                        if (match) {
+                            const otp = match[0];
+                            console.log(`Found OTP: ${otp} for email recipient: ${targetEmail}`);
+                            return otp;
+                        }
+                    }
+                }
+            }
+            // Wait 5 seconds before checking again
+            await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+        throw new Error(`OTP email not found for ${targetEmail} after 30 attempts.`);
+    } finally {
+        lock.release();
+        await client.logout();
+        console.log('Logged out of Gmail IMAP server.');
+    }
+}
+
+(async () => {
+    // Check for credentials first
+    if (!process.env.GMAIL_APP_PASSWORD) {
+        console.error('ERROR: GMAIL_APP_PASSWORD environment variable is not defined.');
+        process.exit(1);
+    }
+
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+        viewport: { width: 1280, height: 800 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+    });
+
+    const page = await context.newPage();
+
+    // Disable all default timeouts to handle slow internet speeds
+    page.setDefaultTimeout(0);
+    page.setDefaultNavigationTimeout(0);
+
+    try {
+        console.log('Navigating to ChatGPT...');
+        await page.goto('https://chatgpt.com/', { waitUntil: 'load', timeout: 0 });
+
+        const loginBtn = page.locator('[data-testid="login-button"]');
+        console.log('Waiting for login button...');
+        await loginBtn.waitFor({ state: 'visible', timeout: 0 });
+
+        // Screenshot 1: Homepage
+        await page.screenshot({ path: 'screenshots/1_homepage.png' });
+
+        console.log('Clicking login button...');
+        await loginBtn.click();
+
+        console.log('Waiting for login form/email input...');
+        const emailInput = page.locator('input#email');
+        await emailInput.waitFor({ state: 'visible', timeout: 0 });
+
+        // Generate customized email alias
+        const randomString = generateRandomString(6);
+        const email = `holaexplainer+${randomString}@gmail.com`;
+        console.log(`Generated email: ${email}`);
+
+        await emailInput.fill(email);
+
+        // Screenshot 2: Email Filled
+        await page.screenshot({ path: 'screenshots/2_email_filled.png' });
+
+        console.log('Pressing Enter/Submit...');
+        await emailInput.press('Enter');
+
+        console.log('Waiting for redirection to verification page...');
+        await page.waitForURL('**/email-verification**', { waitUntil: 'load', timeout: 0 });
+        console.log('Redirected to verification page:', page.url());
+
+        // Screenshot 3: Verification Page
+        await page.screenshot({ path: 'screenshots/3_verification_page.png', fullPage: true });
+
+        // Get OTP from Gmail inbox
+        console.log(`Starting fetching OTP for ${email}...`);
+        const otp = await getOTP(email);
+        console.log(`Successfully retrieved OTP: ${otp}`);
+
+        // Enter OTP code
+        console.log('Typing OTP code...');
+        const codeInput = page.locator('input[name="code"], input[placeholder="Code"], input[id$="-code"]');
+        await codeInput.waitFor({ state: 'visible', timeout: 0 });
+        await codeInput.fill(otp);
+
+        // Screenshot 4: OTP Entered
+        await page.screenshot({ path: 'screenshots/4_otp_entered.png' });
+
+        console.log('Submitting OTP code...');
+        const submitBtn = page.locator('button[type="submit"][value="validate"], button:has-text("Continue")');
+        await submitBtn.click();
+
+        // Wait for profile setup form (About You) page
+        console.log('Waiting for Profile Setup (About You) page to load...');
+        const nameInput = page.locator('input[name="name"], input[placeholder="Full name"]');
+        await nameInput.waitFor({ state: 'visible', timeout: 0 });
+
+        // Screenshot 5: Profile Page
+        await page.screenshot({ path: 'screenshots/5_profile_page.png' });
+
+        console.log('Filling Profile Info (Name & Age)...');
+        await nameInput.fill('jahid hasan');
+
+        const ageInput = page.locator('input[name="age"], input[placeholder="Age"]');
+        await ageInput.waitFor({ state: 'visible', timeout: 0 });
+        await ageInput.fill('30');
+
+        // Screenshot 6: Profile Filled
+        await page.screenshot({ path: 'screenshots/6_profile_filled.png' });
+
+        console.log('Submitting Profile Info...');
+        const finishBtn = page.locator('button[type="submit"]:has-text("Finish creating account"), button:has-text("Finish creating account")');
+        await finishBtn.click();
+
+        console.log('Waiting for redirect back to ChatGPT...');
+        await page.waitForURL('**/chatgpt.com/**', { waitUntil: 'load', timeout: 0 });
+
+        // Wait a brief moment to let any welcome popup render
+        await page.waitForTimeout(5000);
+
+        // Check if "You're all set" popup or dialog with 'Continue' button exists
+        const allSetBtn = page.locator('button.btn-primary:has-text("Continue"), button:has-text("Continue")');
+        if (await allSetBtn.count() > 0) {
+            console.log('"You\'re all set" button found. Clicking it...');
+            await allSetBtn.first().click();
+            await page.waitForTimeout(2000);
+        }
+
+        // Screenshot 7: Final page
+        await page.screenshot({ path: 'screenshots/7_final_page.png', fullPage: true });
+        console.log('Process completed. Screenshot of the final page captured.');
+
+    } catch (error) {
+        console.error('An error occurred during flow execution:', error);
+        await page.screenshot({ path: 'screenshots/error.png', fullPage: true });
+    } finally {
+        await browser.close();
+    }
+})();
