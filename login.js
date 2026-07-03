@@ -43,72 +43,45 @@ async function getOTP(targetEmail) {
     try {
         // Try up to 30 attempts, checking every 5 seconds (2.5 minutes total)
         for (let attempt = 1; attempt <= 30; attempt++) {
-            console.log(`Checking inbox for OTP (Attempt ${attempt}/30)...`);
-            
             // Lock mailbox to ensure state is synchronized and fresh
             let lock = await client.getMailboxLock('INBOX');
             try {
-                // Search specifically for targetEmail first (server-side filter)
+                // Select INBOX to refresh the server connection and get newly arrived mails
+                await client.selectMailbox('INBOX');
+                
+                // Server-side filter to find messages with the exact "To" header
                 let uids = await client.search({
-                    subject: 'ChatGPT',
-                    to: targetEmail
+                    header: ['to', targetEmail]
                 });
 
-                // Fallback: search unseen emails if no direct match found
-                if (!uids || uids.length === 0) {
-                    uids = await client.search({
-                        subject: 'ChatGPT',
-                        unseen: true
-                    });
-                }
-
-                console.log(`Found ${uids.length} potential email(s) for OTP check.`);
-
                 if (uids && uids.length > 0) {
-                    // Limit processing to at most the 5 most recent matching emails
-                    const maxEmailsToCheck = 5;
-                    const startIndex = Math.max(0, uids.length - maxEmailsToCheck);
+                    console.log(`Email arrived! Found ${uids.length} email(s) for ${targetEmail}. Fetching...`);
+                    
+                    // Fetch the newest matching email (last one in the list)
+                    const uid = uids[uids.length - 1];
+                    const msg = await client.fetchOne(uid, { source: true });
+                    
+                    // Parse email
+                    const parsed = await simpleParser(msg.source);
+                    const text = parsed.text || '';
+                    const html = parsed.html || '';
 
-                    for (let i = uids.length - 1; i >= startIndex; i--) {
-                        const uid = uids[i];
-                        const msg = await client.fetchOne(uid, { source: true });
-                        
-                        // Parse raw email structure
-                        const parsed = await simpleParser(msg.source);
-                        const text = parsed.text || '';
-                        const html = parsed.html || '';
-                        
-                        // Extract recipient details
-                        const toText = (parsed.to && parsed.to.text) ? parsed.to.text.toLowerCase() : '';
-                        const parsedEmails = parsed.to && parsed.to.value 
-                            ? parsed.to.value.map(val => (val.address || '').toLowerCase()) 
-                            : [];
-
-                        console.log(`Checking UID: ${uid} | Recipient Header: "${toText}"`);
-
-                        // Verify if target email is the recipient
-                        const isMatch = toText.includes(targetEmail.toLowerCase()) || 
-                                        parsedEmails.includes(targetEmail.toLowerCase()) || 
-                                        text.includes(targetEmail) ||
-                                        html.includes(targetEmail);
-
-                        if (isMatch) {
-                            // Find 6-digit OTP code
-                            const otpRegex = /\b\d{6}\b/;
-                            let match = text.match(otpRegex);
-                            if (!match) {
-                                match = html.match(otpRegex);
-                            }
-
-                            if (match) {
-                                const otp = match[0];
-                                console.log(`Found OTP: ${otp} for ${targetEmail}`);
-                                return otp;
-                            } else {
-                                console.log(`Could not extract a 6-digit OTP code from message UID: ${uid}.`);
-                            }
-                        }
+                    // Find 6-digit OTP code
+                    const otpRegex = /\b\d{6}\b/;
+                    let match = text.match(otpRegex);
+                    if (!match) {
+                        match = html.match(otpRegex);
                     }
+
+                    if (match) {
+                        const otp = match[0];
+                        console.log(`Found OTP: ${otp} for ${targetEmail}`);
+                        return otp;
+                    } else {
+                        console.log(`Could not extract a 6-digit OTP code from message UID: ${uid}.`);
+                    }
+                } else {
+                    console.log(`Checking inbox for OTP (Attempt ${attempt}/30) - Waiting for email to arrive...`);
                 }
             } finally {
                 // Release lock on INBOX
