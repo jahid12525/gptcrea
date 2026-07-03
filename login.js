@@ -46,9 +46,6 @@ async function getOTP(targetEmail) {
             // Lock mailbox to ensure state is synchronized and fresh
             let lock = await client.getMailboxLock('INBOX');
             try {
-                // Select INBOX to refresh the server connection and get newly arrived mails
-                await client.selectMailbox('INBOX');
-                
                 // Server-side filter to find messages with the exact "To" header
                 let uids = await client.search({
                     header: ['to', targetEmail]
