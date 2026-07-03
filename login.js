@@ -28,6 +28,8 @@ async function createNewSession() {
     const mailwaveContext = await mailwaveBrowser.newContext({
         viewport: { width: 1280, height: 800 }
     });
+    
+
     const mailwavePage = await mailwaveContext.newPage();
     mailwavePage.setDefaultTimeout(0);
     mailwavePage.setDefaultNavigationTimeout(0);
@@ -87,13 +89,14 @@ async function createNewSession() {
         }
     });
 
+
     const page = await context.newPage();
     page.setDefaultTimeout(0);
     page.setDefaultNavigationTimeout(0);
 
     try {
         console.log('Navigating to ChatGPT...');
-        await page.goto('https://chatgpt.com/', { waitUntil: 'load', timeout: 0 });
+        await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded', timeout: 0 });
 
         const loginBtn = page.locator('[data-testid="login-button"]');
         await loginBtn.waitFor({ state: 'visible', timeout: 0 });
