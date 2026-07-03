@@ -41,18 +41,28 @@ async function createNewSession() {
         const emailInput = mailwavePage.locator('input#mainEmail');
         await emailInput.waitFor({ state: 'visible', timeout: 0 });
         
-        for (let attempt = 1; attempt <= 30; attempt++) {
+        let attempts = 0;
+        while (attempts < 15) {
             email = await emailInput.inputValue();
             if (email && email !== 'landing' && email.includes('@')) {
-                break;
+                if (email.toLowerCase().includes('.edu')) {
+                    break;
+                }
+                console.log(`Generated email "${email}" is not an .edu domain (OpenAI blocks standard disposable domains). Requesting a new address...`);
+                const deleteBtn = mailwavePage.locator('button#delete');
+                await deleteBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+                await deleteBtn.click({ force: true, timeout: 2000 }).catch(() => {});
+                await mailwavePage.waitForTimeout(3000);
+            } else {
+                await mailwavePage.waitForTimeout(1000);
             }
-            await mailwavePage.waitForTimeout(1000);
+            attempts++;
         }
         
-        if (!email || email === 'landing') {
-            throw new Error('Failed to generate email on mailwave.dev');
+        if (!email || email === 'landing' || !email.toLowerCase().includes('.edu')) {
+            throw new Error('Failed to generate a valid .edu email address on mailwave.dev');
         }
-        console.log(`Successfully generated email: ${email}`);
+        console.log(`Successfully generated .edu email: ${email}`);
     } catch (err) {
         await mailwaveBrowser.close().catch(() => {});
         throw err;
