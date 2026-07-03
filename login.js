@@ -21,22 +21,37 @@ function generateRandomString(length) {
     return result;
 }
 
+// CONFIGURATION:
+// 1. Set your base Outlook registration email here (e.g. 'ruslanbaba1@outlook.com')
+const BASE_EMAIL = 'ruslanbaba1@outlook.com';
+
+// 2. Set the Gmail address where Outlook forwards all verification emails
+const GMAIL_FORWARD_INBOX = 'holaexplainer@gmail.com';
+
+function getParentEmail(email) {
+    const [localPart, domain] = email.split('@');
+    const [baseLocal] = localPart.split('+');
+    return `${baseLocal}@${domain}`;
+}
+
 async function getOTP(targetEmail) {
-    if (!process.env.GMAIL_APP_PASSWORD) {
+    const appPassword = process.env.GMAIL_APP_PASSWORD;
+
+    if (!appPassword) {
         throw new Error('GMAIL_APP_PASSWORD environment variable is not set!');
     }
 
     // Try up to 30 attempts, checking every 5 seconds (2.5 minutes total)
     for (let attempt = 1; attempt <= 30; attempt++) {
-        console.log(`Checking inbox for OTP (Attempt ${attempt}/30)...`);
+        console.log(`Checking Gmail inbox for forwarded Outlook OTP (Attempt ${attempt}/30)...`);
 
         const client = new ImapFlow({
             host: 'imap.gmail.com',
             port: 993,
             secure: true,
             auth: {
-                user: 'holaexplainer@gmail.com',
-                pass: process.env.GMAIL_APP_PASSWORD
+                user: GMAIL_FORWARD_INBOX,
+                pass: appPassword
             },
             logger: false
         });
@@ -135,7 +150,8 @@ async function createNewSession() {
         await emailInput.waitFor({ state: 'visible', timeout: 0 });
 
         const randomString = generateRandomString(6);
-        const email = `holaexplainer+${randomString}@gmail.com`;
+        const [localPart, domain] = BASE_EMAIL.split('@');
+        const email = `${localPart}+${randomString}@${domain}`;
         console.log(`Registering account with email: ${email}`);
 
         await emailInput.fill(email);
