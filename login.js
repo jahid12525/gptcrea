@@ -95,13 +95,29 @@ async function checkSessionValid(page) {
 }
 
 
-async function createNewSession() {
-    console.log('\n--- Creating New Browser Session and Registering New Account ---');
+let signupLock = Promise.resolve();
+
+async function createNewSessionLocked(workerId) {
+    let release;
+    const waitPromise = new Promise(resolve => { release = resolve; });
+    const previousLock = signupLock;
+    signupLock = waitPromise;
+    
+    await previousLock;
+    try {
+        return await createNewSession(workerId);
+    } finally {
+        release();
+    }
+}
+
+async function createNewSession(workerId) {
+    console.log(`\n[Worker ${workerId}] --- Creating New Browser Session and Registering New Account ---`);
 
     let email = '';
     let uuid = '';
     try {
-        console.log('Fetching active EduMails domains...');
+        console.log(`[Worker ${workerId}] Fetching active EduMails domains...`);
         const domainsRes = await fetch('https://api.edu-mails.com/api/domains');
         const domainsJson = await domainsRes.json();
         if (domainsJson.status !== 'success' || !domainsJson.data || !domainsJson.data.domains || domainsJson.data.domains.length === 0) {
@@ -112,7 +128,7 @@ async function createNewSession() {
         const selectedDomain = domains[Math.floor(Math.random() * domains.length)];
         const alias = generateRandomString(10).toLowerCase();
 
-        console.log(`Generating EduMails temp email for custom alias: ${alias} on domain: ${selectedDomain.name} (id: ${selectedDomain.id})...`);
+        console.log(`[Worker ${workerId}] Generating EduMails temp email for custom alias: ${alias} on domain: ${selectedDomain.name} (id: ${selectedDomain.id})...`);
         const genRes = await fetch('https://api.edu-mails.com/api/emails/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -128,13 +144,13 @@ async function createNewSession() {
         }
         email = genJson.data.email.address;
         uuid = genJson.data.email.uuid;
-        console.log(`Successfully generated email: ${email} (uuid: ${uuid})`);
+        console.log(`[Worker ${workerId}] Successfully generated email: ${email} (uuid: ${uuid})`);
     } catch (err) {
         throw err;
     }
 
     // Now launch the main ChatGPT browser
-    console.log('Launching main browser process for ChatGPT...');
+    console.log(`[Worker ${workerId}] Launching main browser process for ChatGPT...`);
     const browser = await chromium.launch({
         headless: true,
         args: [
@@ -153,7 +169,7 @@ async function createNewSession() {
     page.setDefaultNavigationTimeout(60000);
 
     try {
-        console.log('Navigating to ChatGPT...');
+        console.log(`[Worker ${workerId}] Navigating to ChatGPT...`);
         await page.goto('https://chatgpt.com/', { waitUntil: 'load' });
 
         const loginBtn = page.locator('[data-testid="login-button"]');
@@ -163,7 +179,7 @@ async function createNewSession() {
         const chatgptEmailInput = page.locator('input#email');
         await chatgptEmailInput.waitFor({ state: 'visible' });
 
-        console.log(`Entering registration email: ${email}`);
+        console.log(`[Worker ${workerId}] Entering registration email: ${email}`);
         await chatgptEmailInput.fill(email);
         await chatgptEmailInput.press('Enter');
 
@@ -171,16 +187,16 @@ async function createNewSession() {
         await page.waitForTimeout(2000);
         const continueBtn = page.locator('button[type="submit"]:has-text("Continue"), button:has-text("Continue")');
         if (await continueBtn.count() > 0 && await continueBtn.isVisible()) {
-            console.log('Clicking the Continue button directly...');
+            console.log(`[Worker ${workerId}] Clicking the Continue button directly...`);
             await continueBtn.click();
         }
 
-        console.log('Waiting for verification page (waiting for code input)...');
+        console.log(`[Worker ${workerId}] Waiting for verification page (waiting for code input)...`);
         const codeInput = page.locator('input[name="code"], input[placeholder="Code"], input[id$="-code"]');
         await codeInput.waitFor({ state: 'visible' });
 
         // Retrieve OTP using EduMails API
-        console.log('Checking EduMails inbox for ChatGPT verification email...');
+        console.log(`[Worker ${workerId}] Checking EduMails inbox for ChatGPT verification email...`);
         let otp = null;
         for (let attempt = 1; attempt <= 30; attempt++) {
             try {
@@ -205,24 +221,24 @@ async function createNewSession() {
                     }
                 }
             } catch (err) {
-                console.error(`Error checking inbox (attempt ${attempt}/30):`, err.message);
+                console.error(`[Worker ${workerId}] Error checking inbox (attempt ${attempt}/30):`, err.message);
             }
-            console.log(`Email not arrived yet or OTP not found (attempt ${attempt}/30). Waiting 5 seconds...`);
+            console.log(`[Worker ${workerId}] Email not arrived yet or OTP not found (attempt ${attempt}/30). Waiting 5 seconds...`);
             await page.waitForTimeout(5000);
         }
 
         if (!otp) {
             throw new Error('Verification email from ChatGPT did not arrive or OTP could not be extracted.');
         }
-        console.log(`Successfully retrieved OTP: ${otp}`);
+        console.log(`[Worker ${workerId}] Successfully retrieved OTP: ${otp}`);
 
         // Bring the ChatGPT page to the front to ensure it is focused and not throttled
-        console.log('Bringing ChatGPT tab to front...');
+        console.log(`[Worker ${workerId}] Bringing ChatGPT tab to front...`);
         await page.bringToFront();
         await page.waitForTimeout(1000);
 
         // Fill in OTP on ChatGPT
-        console.log(`Entering OTP code: ${otp} on ChatGPT...`);
+        console.log(`[Worker ${workerId}] Entering OTP code: ${otp} on ChatGPT...`);
         await codeInput.focus();
         await codeInput.fill(otp);
 
@@ -232,52 +248,52 @@ async function createNewSession() {
         // If nameInput is not visible yet, try to find and click the submit button
         const nameInput = page.locator('input[name="name"], input[placeholder="Full name"]');
         if (await nameInput.count() === 0 || !(await nameInput.isVisible())) {
-            console.log('Form did not auto-submit. Locating and clicking submit/continue button...');
+            console.log(`[Worker ${workerId}] Form did not auto-submit. Locating and clicking submit/continue button...`);
             const submitBtn = page.locator('button[type="submit"][value="validate"], button:has-text("Continue")');
             if (await submitBtn.count() > 0 && await submitBtn.isVisible()) {
-                await submitBtn.click().catch(err => console.log('Submit button click ignored:', err.message));
+                await submitBtn.click().catch(err => console.log(`[Worker ${workerId}] Submit button click ignored:`, err.message));
             }
         }
 
         // Wait for profile setup form (About You) page
-        console.log('Waiting for Profile Setup (About You) page to load...');
+        console.log(`[Worker ${workerId}] Waiting for Profile Setup (About You) page to load...`);
         await nameInput.waitFor({ state: 'visible' });
 
-        console.log('Filling Profile Info (Name & Age)...');
+        console.log(`[Worker ${workerId}] Filling Profile Info (Name & Age)...`);
         await nameInput.fill('jahid hasan');
 
         const ageInput = page.locator('input[name="age"], input[placeholder="Age"]');
         await ageInput.waitFor({ state: 'visible' });
         await ageInput.fill('30');
 
-        console.log('Submitting Profile Info...');
+        console.log(`[Worker ${workerId}] Submitting Profile Info...`);
         const finishBtn = page.locator('button[type="submit"]:has-text("Finish creating account"), button:has-text("Finish creating account")');
         await finishBtn.click();
 
-        console.log('Waiting for redirect back to ChatGPT...');
+        console.log(`[Worker ${workerId}] Waiting for redirect back to ChatGPT...`);
         await page.waitForURL('**/chatgpt.com/**', { waitUntil: 'domcontentloaded' });
 
         await dismissOnboarding(page);
 
-        console.log('New account session successfully created and logged in.');
+        console.log(`[Worker ${workerId}] New account session successfully created and logged in.`);
 
         const emailsFilePath = path.join(__dirname, 'emails.txt');
         fs.appendFileSync(emailsFilePath, `${email}\n`, 'utf8');
-        console.log(`Saved registered email: ${email} to ${emailsFilePath}`);
+        console.log(`[Worker ${workerId}] Saved registered email: ${email} to ${emailsFilePath}`);
 
         return { browser, page };
 
     } catch (error) {
-        console.error('An error occurred during account creation:', error);
+        console.error(`[Worker ${workerId}] An error occurred during account creation:`, error);
         try {
-            console.error('Current Page URL:', page.url());
-            console.error('Current Page Title:', await page.title());
+            console.error(`[Worker ${workerId}] Current Page URL:`, page.url());
+            console.error(`[Worker ${workerId}] Current Page Title:`, await page.title());
             const bodyText = await page.innerText('body').catch(() => '');
-            console.error('Page Body Text Snippet (first 800 chars):', bodyText.slice(0, 800));
+            console.error(`[Worker ${workerId}] Page Body Text Snippet (first 800 chars):`, bodyText.slice(0, 800));
         } catch (diagErr) {
-            console.error('Failed to capture diagnostic page details:', diagErr.message);
+            console.error(`[Worker ${workerId}] Failed to capture diagnostic page details:`, diagErr.message);
         }
-        await page.screenshot({ path: 'wallpapers/error_signup.png', fullPage: true });
+        await page.screenshot({ path: `wallpapers/error_signup_worker_${workerId}.png`, fullPage: true });
         await browser.close().catch(() => { });
         throw error;
     }
@@ -304,149 +320,176 @@ async function createNewSession() {
         ];
     }
 
-    let currentSession = null;
-    let generationsOnCurrentAccount = 0;
-    let accountIndex = 1;
-    let promptRetries = 0;
-    const maxPromptRetries = 2;
+    // Set up queue tasks
+    const tasks = prompts.map((promptText, i) => ({
+        text: promptText,
+        index: i,
+        retries: 0
+    }));
 
-    for (let i = 0; i < prompts.length; i++) {
-        const prompt = prompts[i];
-        console.log(`\n======================================================`);
-        console.log(`Processing Prompt ${i + 1}/${prompts.length}`);
-        console.log(`Prompt: "${prompt}"`);
-        console.log(`======================================================`);
+    const concurrency = 5;
+    const workerPromises = [];
 
-        // Rotate browser session / account if generations reach limit of 5
-        if (!currentSession || generationsOnCurrentAccount >= 5) {
+    console.log(`Starting bulk image generation with ${concurrency} parallel workers...`);
+
+    for (let w = 1; w <= concurrency; w++) {
+        workerPromises.push((async (workerId) => {
+            console.log(`[Worker ${workerId}] Initialized.`);
+            let currentSession = null;
+            let generationsOnCurrentAccount = 0;
+            const maxPromptRetries = 2;
+
+            while (true) {
+                // Fetch the next task in a thread-safe (JS-atomic) manner
+                const task = tasks.shift();
+                if (!task) {
+                    break; // Queue is empty, exit worker
+                }
+
+                console.log(`\n======================================================`);
+                console.log(`[Worker ${workerId}] Processing Prompt ${task.index + 1}/${prompts.length}`);
+                console.log(`[Worker ${workerId}] Prompt: "${task.text}"`);
+                console.log(`======================================================`);
+
+                // Rotate browser session / account if generations reach limit of 5
+                if (!currentSession || generationsOnCurrentAccount >= 5) {
+                    if (currentSession) {
+                        console.log(`[Worker ${workerId}] Reached 5 generations limit. Closing browser and rotating account...`);
+                        await currentSession.browser.close().catch(() => { });
+                        currentSession = null;
+                    }
+                    try {
+                        // Use the locked signup creator to stagger registration
+                        currentSession = await createNewSessionLocked(workerId);
+                        generationsOnCurrentAccount = 0;
+                    } catch (err) {
+                        console.error(`[Worker ${workerId}] Failed to rotate account session:`, err.message);
+                        console.log(`[Worker ${workerId}] Waiting 10 seconds before retrying...`);
+                        await new Promise(res => setTimeout(res, 10000));
+                        // Put the task back to the front of the queue
+                        tasks.unshift(task);
+                        continue;
+                    }
+                }
+
+                const page = currentSession.page;
+
+                try {
+                    console.log(`[Worker ${workerId}] Resetting interface to start a fresh chat session...`);
+                    await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' });
+
+                    await dismissOnboarding(page);
+
+                    // Verify session is still valid
+                    const sessionValid = await checkSessionValid(page);
+                    if (!sessionValid) {
+                        console.log(`[Worker ${workerId}] Session is invalid/expired. Forcing session rotation...`);
+                        throw new Error('SessionExpiredOrInvalid');
+                    }
+
+                    console.log(`[Worker ${workerId}] Locating prompt input text area (#prompt-textarea)...`);
+                    const promptArea = page.locator('#prompt-textarea');
+                    await promptArea.waitFor({ state: 'visible' });
+
+                    console.log(`[Worker ${workerId}] Focusing and typing the image prompt...`);
+                    await promptArea.click();
+                    let finalPrompt = task.text;
+                    if (!task.text.includes('9:16') && !task.text.toLowerCase().includes('aspect ratio')) {
+                        finalPrompt = `Create a vertical 9:16 aspect ratio wallpaper of: ${task.text}`;
+                    }
+                    console.log(`[Worker ${workerId}] Typing formatted prompt: "${finalPrompt}"`);
+                    await page.keyboard.type(finalPrompt);
+                    await page.waitForTimeout(1000);
+
+                    console.log(`[Worker ${workerId}] Locating send button...`);
+                    const sendBtn = page.locator('[data-testid="send-button"], #composer-submit-button');
+                    await sendBtn.waitFor({ state: 'visible' });
+
+                    console.log(`[Worker ${workerId}] Clicking the send button...`);
+                    await sendBtn.click();
+
+                    console.log(`[Worker ${workerId}] Waiting for image generation to complete...`);
+                    // Wait for the image container to appear with an actual img src
+                    const imageImgLocator = page.locator('.group\\/imagegen-image img[src*="estuary/content"]').first();
+                    await imageImgLocator.waitFor({ state: 'visible', timeout: 120000 });
+
+                    console.log(`[Worker ${workerId}] Image generated! Extracting image URL from DOM...`);
+                    const imageUrl = await imageImgLocator.getAttribute('src');
+                    if (!imageUrl) {
+                        throw new Error('Could not extract image URL from generated image element.');
+                    }
+                    console.log(`[Worker ${workerId}] Extracted image URL: ${imageUrl.substring(0, 100)}...`);
+
+                    // Download the image directly using browser fetch (sends cookies automatically)
+                    const fileIndex = task.index + 1;
+                    const filePath = path.join('wallpapers', `wallpaper_${fileIndex}.png`);
+                    console.log(`[Worker ${workerId}] Downloading image directly to: ${filePath}`);
+
+                    const imageBuffer = await page.evaluate(async (url) => {
+                        const response = await fetch(url, { credentials: 'include' });
+                        if (!response.ok) throw new Error(`Fetch failed with status: ${response.status}`);
+                        const arrayBuffer = await response.arrayBuffer();
+                        return Array.from(new Uint8Array(arrayBuffer));
+                    }, imageUrl);
+
+                    fs.writeFileSync(filePath, Buffer.from(imageBuffer));
+                    console.log(`[Worker ${workerId}] Wallpaper successfully downloaded and saved to: ${filePath}`);
+
+                    generationsOnCurrentAccount++;
+                    console.log(`[Worker ${workerId}] Generations on current account: ${generationsOnCurrentAccount}/5`);
+
+                } catch (error) {
+                    console.error(`[Worker ${workerId}] Error processing prompt ${task.index + 1}:`, error.message || error);
+                    try {
+                        await page.screenshot({ path: `wallpapers/error_prompt_${task.index + 1}_worker_${workerId}.png`, fullPage: true });
+                    } catch (snapErr) {
+                        console.error(`[Worker ${workerId}] Failed to take screenshot:`, snapErr.message);
+                    }
+
+                    // Since an error occurred, check if we should discard the session
+                    let shouldDiscardSession = false;
+
+                    // 1. Check if the session is expired or logged out
+                    try {
+                        const sessionValid = await checkSessionValid(page);
+                        if (!sessionValid) {
+                            shouldDiscardSession = true;
+                        }
+                    } catch (checkErr) {
+                        console.error(`[Worker ${workerId}] Failed to check session status after error:`, checkErr.message);
+                        shouldDiscardSession = true;
+                    }
+
+                    // 2. Also discard session if there was a timeout (which could mean rate limit / stuck UI)
+                    if (error.name === 'TimeoutError' || error.message.includes('timeout') || error.message.includes('Timeout')) {
+                        console.log(`[Worker ${workerId}] Timeout detected. Discarding session to rotate account...`);
+                        shouldDiscardSession = true;
+                    }
+
+                    if (shouldDiscardSession) {
+                        if (currentSession) {
+                            await currentSession.browser.close().catch(() => {});
+                            currentSession = null;
+                        }
+                    }
+
+                    if (task.retries < maxPromptRetries) {
+                        task.retries++;
+                        console.log(`[Worker ${workerId}] Retrying prompt ${task.index + 1} (attempt ${task.retries}/${maxPromptRetries})...`);
+                        tasks.unshift(task); // Re-queue task to retry
+                    } else {
+                        console.log(`[Worker ${workerId}] Maximum retries reached for prompt ${task.index + 1}. Moving to next prompt.`);
+                    }
+                }
+            }
+
             if (currentSession) {
-                console.log('Reached 5 generations limit on this account. Closing browser and rotating account...');
                 await currentSession.browser.close().catch(() => { });
-                accountIndex++;
+                console.log(`[Worker ${workerId}] Browser closed. Worker finished.`);
             }
-            try {
-                currentSession = await createNewSession();
-                generationsOnCurrentAccount = 0;
-                promptRetries = 0; // Reset retries on session change
-            } catch (err) {
-                console.error('Failed to rotate account session. Retrying in 10 seconds...');
-                await new Promise(res => setTimeout(res, 10000));
-                i--; // Retry this prompt in the next iteration
-                continue;
-            }
-        }
-
-        const page = currentSession.page;
-
-        try {
-            console.log('Resetting interface to start a fresh chat session...');
-            await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' });
-
-            await dismissOnboarding(page);
-
-            // Verify session is still valid
-            const sessionValid = await checkSessionValid(page);
-            if (!sessionValid) {
-                console.log('Session is invalid/expired. Forcing session rotation...');
-                throw new Error('SessionExpiredOrInvalid');
-            }
-
-            console.log('Locating prompt input text area (#prompt-textarea)...');
-            const promptArea = page.locator('#prompt-textarea');
-            await promptArea.waitFor({ state: 'visible' });
-
-            console.log('Focusing and typing the image prompt...');
-            await promptArea.click();
-            let finalPrompt = prompt;
-            if (!prompt.includes('9:16') && !prompt.toLowerCase().includes('aspect ratio')) {
-                finalPrompt = `Create a vertical 9:16 aspect ratio wallpaper of: ${prompt}`;
-            }
-            console.log(`Typing formatted prompt: "${finalPrompt}"`);
-            await page.keyboard.type(finalPrompt);
-            await page.waitForTimeout(1000);
-
-            console.log('Locating send button...');
-            const sendBtn = page.locator('[data-testid="send-button"], #composer-submit-button');
-            await sendBtn.waitFor({ state: 'visible' });
-
-            console.log('Clicking the send button...');
-            await sendBtn.click();
-
-            console.log('Waiting for image generation to complete...');
-            // Wait for the image container to appear with an actual img src
-            const imageImgLocator = page.locator('.group\\/imagegen-image img[src*="estuary/content"]').first();
-            await imageImgLocator.waitFor({ state: 'visible', timeout: 120000 });
-
-            console.log('Image generated! Extracting image URL from DOM...');
-            const imageUrl = await imageImgLocator.getAttribute('src');
-            if (!imageUrl) {
-                throw new Error('Could not extract image URL from generated image element.');
-            }
-            console.log(`Extracted image URL: ${imageUrl.substring(0, 100)}...`);
-
-            // Download the image directly using browser fetch (sends cookies automatically)
-            const fileIndex = i + 1;
-            const filePath = path.join('wallpapers', `wallpaper_${fileIndex}.png`);
-            console.log(`Downloading image directly to: ${filePath}`);
-
-            const imageBuffer = await page.evaluate(async (url) => {
-                const response = await fetch(url, { credentials: 'include' });
-                if (!response.ok) throw new Error(`Fetch failed with status: ${response.status}`);
-                const arrayBuffer = await response.arrayBuffer();
-                return Array.from(new Uint8Array(arrayBuffer));
-            }, imageUrl);
-
-            fs.writeFileSync(filePath, Buffer.from(imageBuffer));
-            console.log(`Wallpaper successfully downloaded and saved to: ${filePath}`);
-
-            generationsOnCurrentAccount++;
-            console.log(`Generations on current account: ${generationsOnCurrentAccount}/5`);
-            promptRetries = 0; // Reset retries on successful generation
-
-        } catch (error) {
-            console.error(`Error processing prompt ${i + 1}:`, error);
-            await page.screenshot({ path: `wallpapers/error_prompt_${i + 1}.png`, fullPage: true });
-
-            // Since an error occurred, check if we should discard the session
-            let shouldDiscardSession = false;
-
-            // 1. Check if the session is expired or logged out
-            try {
-                const sessionValid = await checkSessionValid(page);
-                if (!sessionValid) {
-                    shouldDiscardSession = true;
-                }
-            } catch (checkErr) {
-                console.error('Failed to check session status after error:', checkErr.message);
-                // If checking itself fails, the browser context might be crashed or detached, so discard it
-                shouldDiscardSession = true;
-            }
-
-            // 2. Also discard session if there was a timeout (which could mean rate limit / stuck UI)
-            if (error.name === 'TimeoutError' || error.message.includes('timeout') || error.message.includes('Timeout')) {
-                console.log('Timeout detected. Discarding session to rotate account...');
-                shouldDiscardSession = true;
-            }
-
-            if (shouldDiscardSession) {
-                if (currentSession) {
-                    await currentSession.browser.close().catch(() => {});
-                    currentSession = null;
-                }
-            }
-
-            if (promptRetries < maxPromptRetries) {
-                promptRetries++;
-                console.log(`Retrying prompt ${i + 1} (attempt ${promptRetries}/${maxPromptRetries})...`);
-                i--; // Retry this prompt in the next iteration
-            } else {
-                console.log(`Maximum retries reached for prompt ${i + 1}. Moving to next prompt.`);
-                promptRetries = 0; // Reset retries for next prompt
-            }
-        }
+        })(w));
     }
-    if (currentSession) {
-        await currentSession.browser.close().catch(() => { });
-        console.log('\nAll prompts processed. Browser closed.');
-    }
+
+    await Promise.all(workerPromises);
+    console.log('\nAll workers finished. Bulk generation complete.');
 })();
