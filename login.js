@@ -339,37 +339,32 @@ async function createNewSession() {
             console.log('Clicking the send button...');
             await sendBtn.click();
 
-            console.log('Waiting for image generation to complete (waiting for Share button)...');
-            const shareBtn = page.locator('button[aria-label="Share this image"]').first();
-            await shareBtn.waitFor({ state: 'visible' });
+            console.log('Waiting for image generation to complete...');
+            // Wait for the image container to appear with an actual img src
+            const imageImgLocator = page.locator('.group\\/imagegen-image img[src*="estuary/content"]').first();
+            await imageImgLocator.waitFor({ state: 'visible', timeout: 120000 });
 
-            console.log('Image generated successfully. Hovering and clicking Share...');
-            const imageContainer = page.locator('.group\\/imagegen-image').first();
-            if (await imageContainer.count() > 0) {
-                await imageContainer.hover().catch(() => { });
+            console.log('Image generated! Extracting image URL from DOM...');
+            const imageUrl = await imageImgLocator.getAttribute('src');
+            if (!imageUrl) {
+                throw new Error('Could not extract image URL from generated image element.');
             }
-            await shareBtn.click();
+            console.log(`Extracted image URL: ${imageUrl.substring(0, 100)}...`);
 
-            console.log('Waiting for share modal to load...');
-            const downloadBtn = page.locator('button:has-text("Download")').first();
-            await downloadBtn.waitFor({ state: 'visible' });
-
-            console.log('Interceptors ready. Clicking the download button inside the share modal...');
-            const downloadPromise = page.waitForEvent('download');
-            await downloadBtn.click();
-            const download = await downloadPromise;
-
-            // Save the download file
+            // Download the image directly using browser fetch (sends cookies automatically)
             const fileIndex = i + 1;
             const filePath = path.join('wallpapers', `wallpaper_${fileIndex}.png`);
-            await download.saveAs(filePath);
-            console.log(`Wallpaper successfully downloaded and saved to: ${filePath}`);
+            console.log(`Downloading image directly to: ${filePath}`);
 
-            // Close the share modal
-            const closeBtn = page.locator('button[data-testid="close-button"]').first();
-            if (await closeBtn.count() > 0) {
-                await closeBtn.click().catch(() => { });
-            }
+            const imageBuffer = await page.evaluate(async (url) => {
+                const response = await fetch(url, { credentials: 'include' });
+                if (!response.ok) throw new Error(`Fetch failed with status: ${response.status}`);
+                const arrayBuffer = await response.arrayBuffer();
+                return Array.from(new Uint8Array(arrayBuffer));
+            }, imageUrl);
+
+            fs.writeFileSync(filePath, Buffer.from(imageBuffer));
+            console.log(`Wallpaper successfully downloaded and saved to: ${filePath}`);
 
             generationsOnCurrentAccount++;
             console.log(`Generations on current account: ${generationsOnCurrentAccount}/5`);
