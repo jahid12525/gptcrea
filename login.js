@@ -34,44 +34,6 @@ function cleanHtml(html) {
 
 async function dismissOnboarding(page) {
     console.log('Checking for onboarding screens or modals to dismiss...');
-    
-    // First, check for and dismiss the expired session modal
-    const expiredSessionModal = page.locator('#modal-expired-session');
-    if (await expiredSessionModal.count() > 0) {
-        try {
-            if (await expiredSessionModal.isVisible({ timeout: 2000 })) {
-                console.log('Found expired session modal. Looking for action button...');
-                const modalButtons = expiredSessionModal.locator('button');
-                const buttonCount = await modalButtons.count();
-                
-                if (buttonCount > 0) {
-                    // Try to click the first visible button (usually "Reload" or similar)
-                    for (let j = 0; j < buttonCount; j++) {
-                        const btn = modalButtons.nth(j);
-                        try {
-                            if (await btn.isVisible({ timeout: 1000 })) {
-                                const btnText = await btn.innerText();
-                                console.log(`Clicking modal button: "${btnText}"`);
-                                await btn.click();
-                                await page.waitForTimeout(2000);
-                                
-                                // Check if modal is gone
-                                if (await expiredSessionModal.count() === 0 || !(await expiredSessionModal.isVisible({ timeout: 1000 }).catch(() => false))) {
-                                    console.log('Expired session modal dismissed.');
-                                    break;
-                                }
-                            }
-                        } catch (e) {
-                            // Continue to next button
-                        }
-                    }
-                }
-            }
-        } catch (e) {
-            console.log('No expired session modal found.');
-        }
-    }
-    
     // We will attempt to dismiss up to 5 consecutive onboarding screens/steps
     for (let step = 0; step < 5; step++) {
         let foundElement = null;
@@ -85,16 +47,12 @@ async function dismissOnboarding(page) {
         ];
 
         // Poll for visibility of any of these elements
-        for (let attempt = 0; attempt < 8; attempt++) {
+        for (let attempt = 0; attempt < 8; attempt++) { // 8 * 500ms = 4 seconds max wait per step
             for (const item of locators) {
-                try {
-                    if (await item.locator.count() > 0 && await item.locator.first().isVisible({ timeout: 1000 })) {
-                        foundElement = item.locator.first();
-                        actionName = item.name;
-                        break;
-                    }
-                } catch (e) {
-                    // Continue to next locator
+                if (await item.locator.count() > 0 && await item.locator.first().isVisible()) {
+                    foundElement = item.locator.first();
+                    actionName = item.name;
+                    break;
                 }
             }
             if (foundElement) break;
@@ -102,20 +60,40 @@ async function dismissOnboarding(page) {
         }
 
         if (foundElement) {
-            try {
-                console.log(`Found "${actionName}" onboarding button. Clicking it...`);
-                await foundElement.click();
-                await page.waitForTimeout(1500);
-            } catch (e) {
-                console.log(`Failed to click "${actionName}" button:`, e.message);
-                break;
-            }
+            console.log(`Found "${actionName}" onboarding button. Clicking it...`);
+            await foundElement.click();
+            // Wait 1.5 seconds for the transition after clicking
+            await page.waitForTimeout(1500);
         } else {
             console.log('No onboarding screens or modals visible.');
             break;
         }
     }
 }
+
+async function checkSessionValid(page) {
+    console.log('Checking if session is valid...');
+    try {
+        const expiredModal = page.locator('#modal-expired-session');
+        const loginBtn = page.locator('[data-testid="login-button"]');
+        
+        if (await expiredModal.count() > 0 && await expiredModal.first().isVisible()) {
+            console.log('Detected expired session modal.');
+            return false;
+        }
+        
+        if (await loginBtn.count() > 0 && await loginBtn.first().isVisible()) {
+            console.log('Detected login button (session logged out).');
+            return false;
+        }
+        
+        return true;
+    } catch (err) {
+        console.error('Error during session validation check:', err.message);
+        return false;
+    }
+}
+
 
 async function createNewSession() {
     console.log('\n--- Creating New Browser Session and Registering New Account ---');
@@ -221,7 +199,7 @@ async function createNewSession() {
                         const contentToSearch = `${relevantMessage.subject || ''} ${cleanedBody}`;
                         const otpMatch = contentToSearch.match(/\b\d{6}\b/);
                         if (otpMatch) {
-                            otp = otpMatch;
+                            otp = otpMatch[0];
                             break;
                         }
                     }
@@ -255,7 +233,7 @@ async function createNewSession() {
         const nameInput = page.locator('input[name="name"], input[placeholder="Full name"]');
         if (await nameInput.count() === 0 || !(await nameInput.isVisible())) {
             console.log('Form did not auto-submit. Locating and clicking submit/continue button...');
-            const submitBtn = page.locator('button[type="submit"] [value="validate"], button:has-text("Continue")');
+            const submitBtn = page.locator('button[type="submit"][value="validate"], button:has-text("Continue")');
             if (await submitBtn.count() > 0 && await submitBtn.isVisible()) {
                 await submitBtn.click().catch(err => console.log('Submit button click ignored:', err.message));
             }
@@ -305,41 +283,6 @@ async function createNewSession() {
     }
 }
 
-async function ensureNoModalsBlocking(page) {
-    console.log('Checking for any blocking modals...');
-    
-    // Check for expired session modal
-    const expiredSessionModal = page.locator('#modal-expired-session');
-    if (await expiredSessionModal.count() > 0) {
-        try {
-            if (await expiredSessionModal.isVisible({ timeout: 1000 })) {
-                console.log('Expired session modal detected. Dismissing...');
-                await dismissOnboarding(page);
-                await page.waitForTimeout(1500);
-            }
-        } catch (e) {
-            console.log('No visible expired session modal.');
-        }
-    }
-    
-    // Check for any generic dialog/modal
-    const genericModal = page.locator('[role="dialog"]');
-    if (await genericModal.count() > 0) {
-        try {
-            if (await genericModal.isVisible({ timeout: 1000 })) {
-                console.log('Generic modal/dialog detected. Attempting to close...');
-                const closeBtn = genericModal.locator('button[aria-label="Close"], button[data-testid="close-button"]');
-                if (await closeBtn.count() > 0 && await closeBtn.isVisible({ timeout: 500 })) {
-                    await closeBtn.click();
-                    await page.waitForTimeout(1000);
-                }
-            }
-        } catch (e) {
-            console.log('No visible generic modal.');
-        }
-    }
-}
-
 (async () => {
     // Read prompts from prompts.txt
     let prompts = [];
@@ -364,6 +307,8 @@ async function ensureNoModalsBlocking(page) {
     let currentSession = null;
     let generationsOnCurrentAccount = 0;
     let accountIndex = 1;
+    let promptRetries = 0;
+    const maxPromptRetries = 2;
 
     for (let i = 0; i < prompts.length; i++) {
         const prompt = prompts[i];
@@ -382,6 +327,7 @@ async function ensureNoModalsBlocking(page) {
             try {
                 currentSession = await createNewSession();
                 generationsOnCurrentAccount = 0;
+                promptRetries = 0; // Reset retries on session change
             } catch (err) {
                 console.error('Failed to rotate account session. Retrying in 10 seconds...');
                 await new Promise(res => setTimeout(res, 10000));
@@ -397,14 +343,17 @@ async function ensureNoModalsBlocking(page) {
             await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' });
 
             await dismissOnboarding(page);
-            
-            // NEW: Wait a moment and check for any lingering modals
-            await page.waitForTimeout(1500);
-            await ensureNoModalsBlocking(page);
+
+            // Verify session is still valid
+            const sessionValid = await checkSessionValid(page);
+            if (!sessionValid) {
+                console.log('Session is invalid/expired. Forcing session rotation...');
+                throw new Error('SessionExpiredOrInvalid');
+            }
 
             console.log('Locating prompt input text area (#prompt-textarea)...');
             const promptArea = page.locator('#prompt-textarea');
-            await promptArea.waitFor({ state: 'visible', timeout: 15000 });
+            await promptArea.waitFor({ state: 'visible' });
 
             console.log('Focusing and typing the image prompt...');
             await promptArea.click();
@@ -418,7 +367,7 @@ async function ensureNoModalsBlocking(page) {
 
             console.log('Locating send button...');
             const sendBtn = page.locator('[data-testid="send-button"], #composer-submit-button');
-            await sendBtn.waitFor({ state: 'visible', timeout: 10000 });
+            await sendBtn.waitFor({ state: 'visible' });
 
             console.log('Clicking the send button...');
             await sendBtn.click();
@@ -452,13 +401,47 @@ async function ensureNoModalsBlocking(page) {
 
             generationsOnCurrentAccount++;
             console.log(`Generations on current account: ${generationsOnCurrentAccount}/5`);
+            promptRetries = 0; // Reset retries on successful generation
 
         } catch (error) {
-            console.error(`Error processing prompt ${i + 1}:`, error.message);
+            console.error(`Error processing prompt ${i + 1}:`, error);
+            await page.screenshot({ path: `wallpapers/error_prompt_${i + 1}.png`, fullPage: true });
+
+            // Since an error occurred, check if we should discard the session
+            let shouldDiscardSession = false;
+
+            // 1. Check if the session is expired or logged out
             try {
-                await page.screenshot({ path: `wallpapers/error_prompt_${i + 1}.png`, fullPage: true });
-            } catch (screenshotErr) {
-                console.error('Failed to capture screenshot:', screenshotErr.message);
+                const sessionValid = await checkSessionValid(page);
+                if (!sessionValid) {
+                    shouldDiscardSession = true;
+                }
+            } catch (checkErr) {
+                console.error('Failed to check session status after error:', checkErr.message);
+                // If checking itself fails, the browser context might be crashed or detached, so discard it
+                shouldDiscardSession = true;
+            }
+
+            // 2. Also discard session if there was a timeout (which could mean rate limit / stuck UI)
+            if (error.name === 'TimeoutError' || error.message.includes('timeout') || error.message.includes('Timeout')) {
+                console.log('Timeout detected. Discarding session to rotate account...');
+                shouldDiscardSession = true;
+            }
+
+            if (shouldDiscardSession) {
+                if (currentSession) {
+                    await currentSession.browser.close().catch(() => {});
+                    currentSession = null;
+                }
+            }
+
+            if (promptRetries < maxPromptRetries) {
+                promptRetries++;
+                console.log(`Retrying prompt ${i + 1} (attempt ${promptRetries}/${maxPromptRetries})...`);
+                i--; // Retry this prompt in the next iteration
+            } else {
+                console.log(`Maximum retries reached for prompt ${i + 1}. Moving to next prompt.`);
+                promptRetries = 0; // Reset retries for next prompt
             }
         }
     }
