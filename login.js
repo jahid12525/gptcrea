@@ -327,7 +327,7 @@ async function createNewSession(workerId) {
         retries: 0
     }));
 
-    const concurrency = 5;
+    const concurrency = 10;
     const workerPromises = [];
 
     console.log(`Starting bulk image generation with ${concurrency} parallel workers...`);
