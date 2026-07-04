@@ -71,6 +71,50 @@ async function dismissOnboarding(page) {
     }
 }
 
+async function handleCloudflareTurnstile(page, workerId) {
+    console.log(`[Worker ${workerId}] Checking for Cloudflare Turnstile...`);
+    await page.waitForTimeout(2000);
+    const title = await page.title().catch(() => '');
+    const url = page.url();
+    const content = await page.content().catch(() => '');
+    
+    if (
+        title.includes('Just a moment') || 
+        url.includes('challenges.cloudflare.com') || 
+        content.includes('cloudflare-challenge') || 
+        content.includes('Turnstile') ||
+        content.includes('security verification')
+    ) {
+        console.log(`[Worker ${workerId}] [Cloudflare Turnstile Detected] Attempting bypass...`);
+        
+        for (let i = 0; i < 6; i++) {
+            const currentTitle = await page.title().catch(() => '');
+            if (!currentTitle.includes('Just a moment') && !page.url().includes('challenges.cloudflare.com')) {
+                console.log(`[Worker ${workerId}] Cloudflare Turnstile cleared.`);
+                return true;
+            }
+            
+            try {
+                const frameElement = await page.locator('iframe[src*="challenges.cloudflare.com"]').first();
+                if (await frameElement.isVisible()) {
+                    console.log(`[Worker ${workerId}] Found Cloudflare Turnstile iframe. Clicking checkbox...`);
+                    const box = await frameElement.boundingBox();
+                    if (box) {
+                        await page.mouse.click(box.x + 45, box.y + box.height / 2);
+                        console.log(`[Worker ${workerId}] Clicked iframe Turnstile box at (${box.x + 45}, ${box.y + box.height / 2})`);
+                    }
+                }
+            } catch (clickErr) {
+                console.log(`[Worker ${workerId}] Turnstile interaction error:`, clickErr.message);
+            }
+            
+            console.log(`[Worker ${workerId}] Waiting for Turnstile to clear (attempt ${i + 1}/6)...`);
+            await page.waitForTimeout(5000);
+        }
+    }
+    return false;
+}
+
 async function checkSessionValid(page) {
     console.log('Checking if session is valid...');
     try {
@@ -151,8 +195,9 @@ async function createNewSession(workerId) {
 
     // Now launch the main ChatGPT browser
     console.log(`[Worker ${workerId}] Launching main browser process for ChatGPT...`);
+    const headless = process.env.HEADLESS !== 'false';
     const browser = await chromium.launch({
-        headless: true,
+        headless: headless,
         args: [
             '--disable-blink-features=AutomationControlled',
             '--no-sandbox',
@@ -171,13 +216,34 @@ async function createNewSession(workerId) {
     try {
         console.log(`[Worker ${workerId}] Navigating to ChatGPT...`);
         await page.goto('https://chatgpt.com/', { waitUntil: 'load' });
+        await handleCloudflareTurnstile(page, workerId);
 
-        const loginBtn = page.locator('[data-testid="login-button"]');
-        await loginBtn.waitFor({ state: 'visible' });
-        await loginBtn.click();
+        const emailInputSelector = 'input#email, input[name="username"], input[type="email"], input#username';
+        const loginBtnSelector = '[data-testid="login-button"], [data-testid="signup-button"], button:has-text("Log in"), a:has-text("Log in"), button:has-text("Sign up"), a:has-text("Sign up")';
 
-        const chatgptEmailInput = page.locator('input#email');
-        await chatgptEmailInput.waitFor({ state: 'visible' });
+        console.log(`[Worker ${workerId}] Checking for login button or email input...`);
+        await Promise.race([
+            page.locator(emailInputSelector).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),
+            page.locator(loginBtnSelector).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+        ]);
+
+        const emailInputVisible = await page.locator(emailInputSelector).first().isVisible();
+        if (!emailInputVisible) {
+            const loginBtn = page.locator(loginBtnSelector).first();
+            if (await loginBtn.count() > 0 && await loginBtn.isVisible()) {
+                console.log(`[Worker ${workerId}] Clicking the login/signup button...`);
+                await loginBtn.click();
+                await page.waitForTimeout(2000);
+                await handleCloudflareTurnstile(page, workerId);
+            } else {
+                console.log(`[Worker ${workerId}] Warning: Neither email input nor login button found. Proceeding...`);
+            }
+        } else {
+            console.log(`[Worker ${workerId}] Email input is already visible. Skipping login button click.`);
+        }
+
+        const chatgptEmailInput = page.locator(emailInputSelector).first();
+        await chatgptEmailInput.waitFor({ state: 'visible', timeout: 30000 });
 
         console.log(`[Worker ${workerId}] Entering registration email: ${email}`);
         await chatgptEmailInput.fill(email);
@@ -192,6 +258,7 @@ async function createNewSession(workerId) {
         }
 
         console.log(`[Worker ${workerId}] Waiting for verification page (waiting for code input)...`);
+        await handleCloudflareTurnstile(page, workerId);
         const codeInput = page.locator('input[name="code"], input[placeholder="Code"], input[id$="-code"]');
         await codeInput.waitFor({ state: 'visible' });
 
@@ -387,8 +454,8 @@ async function createNewSession(workerId) {
                         throw new Error('SessionExpiredOrInvalid');
                     }
 
-                    console.log(`[Worker ${workerId}] Locating prompt input text area (#prompt-textarea)...`);
-                    const promptArea = page.locator('#prompt-textarea');
+                    console.log(`[Worker ${workerId}] Locating prompt input text area...`);
+                    const promptArea = page.locator('#prompt-textarea, textarea[placeholder*="message"], textarea[placeholder*="Message"]').first();
                     await promptArea.waitFor({ state: 'visible' });
 
                     console.log(`[Worker ${workerId}] Focusing and typing the image prompt...`);
@@ -402,7 +469,7 @@ async function createNewSession(workerId) {
                     await page.waitForTimeout(1000);
 
                     console.log(`[Worker ${workerId}] Locating send button...`);
-                    const sendBtn = page.locator('[data-testid="send-button"], #composer-submit-button');
+                    const sendBtn = page.locator('[data-testid="send-button"], [data-testid="composer-submit-button"], button[aria-label="Send message"], #composer-submit-button').first();
                     await sendBtn.waitFor({ state: 'visible' });
 
                     console.log(`[Worker ${workerId}] Clicking the send button...`);
@@ -410,7 +477,7 @@ async function createNewSession(workerId) {
 
                     console.log(`[Worker ${workerId}] Waiting for image generation to complete...`);
                     // Wait for the image container to appear with an actual img src
-                    const imageImgLocator = page.locator('.group\\/imagegen-image img[src*="estuary/content"]').first();
+                    const imageImgLocator = page.locator('.group\\/imagegen-image img[src*="estuary/content"], img[src*="estuary/content"], img[src*="backend-api/estuary/content"]').first();
                     await imageImgLocator.waitFor({ state: 'visible', timeout: 120000 });
 
                     console.log(`[Worker ${workerId}] Image generated! Extracting image URL from DOM...`);
