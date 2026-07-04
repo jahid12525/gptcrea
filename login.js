@@ -339,40 +339,53 @@ async function createNewSession() {
             console.log('Clicking the send button...');
             await sendBtn.click();
 
-            console.log('Waiting for image generation to complete (waiting for Share button)...');
+            console.log('Waiting for response to complete (waiting for Send button to reappear)...');
+            await page.waitForTimeout(3000); // Wait for the generation state to start/register
+            await sendBtn.waitFor({ state: 'visible', timeout: 180000 }); // Wait up to 3 minutes for generation/answering to complete
+
+            console.log('Response finished. Checking for generated image (Share button)...');
             const shareBtn = page.locator('button[aria-label="Share this image"]').first();
-            await shareBtn.waitFor({ state: 'visible' });
+            
+            // Check if share button is present and visible
+            if (await shareBtn.count() > 0 && await shareBtn.isVisible()) {
+                console.log('Image generated successfully. Hovering and clicking Share...');
+                const imageContainer = page.locator('.group\\/imagegen-image').first();
+                if (await imageContainer.count() > 0) {
+                    await imageContainer.hover().catch(() => { });
+                }
+                await shareBtn.click();
 
-            console.log('Image generated successfully. Hovering and clicking Share...');
-            const imageContainer = page.locator('.group\\/imagegen-image').first();
-            if (await imageContainer.count() > 0) {
-                await imageContainer.hover().catch(() => { });
+                console.log('Waiting for share modal to load...');
+                const downloadBtn = page.locator('button:has-text("Download")').first();
+                await downloadBtn.waitFor({ state: 'visible' });
+
+                console.log('Interceptors ready. Clicking the download button inside the share modal...');
+                const downloadPromise = page.waitForEvent('download');
+                await downloadBtn.click();
+                const download = await downloadPromise;
+
+                // Save the download file
+                const fileIndex = i + 1;
+                const filePath = path.join('wallpapers', `wallpaper_${fileIndex}.png`);
+                await download.saveAs(filePath);
+                console.log(`Wallpaper successfully downloaded and saved to: ${filePath}`);
+
+                // Close the share modal
+                const closeBtn = page.locator('button[data-testid="close-button"]').first();
+                if (await closeBtn.count() > 0) {
+                    await closeBtn.click().catch(() => { });
+                }
+
+                generationsOnCurrentAccount++;
+                console.log(`Generations on current account: ${generationsOnCurrentAccount}/5`);
+            } else {
+                console.error(`No share button visible. Image generation likely failed or was blocked for Prompt ${i + 1}.`);
+                await page.screenshot({ path: `wallpapers/error_prompt_${i + 1}.png`, fullPage: true });
+
+                // Force account rotation for the next prompt since this account might have hit DALL-E limits
+                console.log('Forcing account rotation for the next prompt due to generation failure...');
+                generationsOnCurrentAccount = 5;
             }
-            await shareBtn.click();
-
-            console.log('Waiting for share modal to load...');
-            const downloadBtn = page.locator('button:has-text("Download")').first();
-            await downloadBtn.waitFor({ state: 'visible' });
-
-            console.log('Interceptors ready. Clicking the download button inside the share modal...');
-            const downloadPromise = page.waitForEvent('download');
-            await downloadBtn.click();
-            const download = await downloadPromise;
-
-            // Save the download file
-            const fileIndex = i + 1;
-            const filePath = path.join('wallpapers', `wallpaper_${fileIndex}.png`);
-            await download.saveAs(filePath);
-            console.log(`Wallpaper successfully downloaded and saved to: ${filePath}`);
-
-            // Close the share modal
-            const closeBtn = page.locator('button[data-testid="close-button"]').first();
-            if (await closeBtn.count() > 0) {
-                await closeBtn.click().catch(() => { });
-            }
-
-            generationsOnCurrentAccount++;
-            console.log(`Generations on current account: ${generationsOnCurrentAccount}/5`);
 
         } catch (error) {
             console.error(`Error processing prompt ${i + 1}:`, error);
