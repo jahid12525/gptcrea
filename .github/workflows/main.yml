@@ -24,7 +24,7 @@ jobs:
 
       - name: Install Node Dependencies
         run: |
-          npm install @tensorflow/tfjs-node upscaler @upscalerjs/default-model
+          npm install @tensorflow/tfjs-node upscaler @upscalerjs/default-model sharp
 
       - name: Download and Extract Dropbox Zip
         run: |
