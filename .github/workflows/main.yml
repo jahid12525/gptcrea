@@ -1,72 +1,33 @@
-name: Bulk Image Upscaler (Upscayl CLI)
+name: Real-ESRGAN Automation Pipeline
 
 on:
   workflow_dispatch:
-    inputs:
-      dropbox_url:
-        description: 'Direct Dropbox Link to Input ZIP (Must end in dl=1)'
-        required: true
-        type: string
+  push:
+    branches:
+      - main
 
 jobs:
   upscale:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Clean up workspace and prepare directories
-      - name: Prepare Workspace
-        run: |
-          mkdir -p input_images
-          mkdir -p output_images
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      # 2. Download zip from Dropbox and extract it
-      - name: Download and Extract Input Images
-        run: |
-          # Convert standard sharing link to direct download link if needed
-          URL="${{ inputs.dropbox_url }}"
-          DIRECT_URL=$(echo "$URL" | sed 's/dl=0/dl=1/g')
-          
-          echo "Downloading from Dropbox..."
-          curl -L -o input.zip "$DIRECT_URL"
-          
-          echo "Extracting images..."
-          unzip -j input.zip -d input_images/
-          
-          echo "Current input files:"
-          ls -la input_images/
-
-      # 3. Setup Vulkan (Required for Real-ESRGAN / Upscayl CLI)
-      - name: Install Vulkan Dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan1 libvulkan-dev vulkan-tools
+          sudo apt-get install -y wget unzip libvulkan1
 
-      # 4. Download and setup the correct Upscayl CLI Engine
-      - name: Download Upscayl CLI Engine
+      - name: Download and Extract Real-ESRGAN Engine
         run: |
           wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
-          unzip realesrgan-ncnn-vulkan-20220424-ubuntu.zip -d upscayl_engine
-          chmod +x upscayl_engine/realesrgan-ncnn-vulkan-20220424-ubuntu/realesrgan-ncnn-vulkan
+          unzip realesrgan-ncnn-vulkan-20220424-ubuntu.zip
 
-      # 5. Process and Upscale images in bulk (2x)
-      - name: Run Bulk 2x Upscaling
+      - name: Set Executable Permissions
         run: |
-          # Step inside the extracted engine folder to run the tool natively
-          cd upscayl_engine/realesrgan-ncnn-vulkan-20220424-ubuntu/
-          
-          # -i: input folder, -o: output folder, -s: scale factor (2), -n: default ultra-sharp model
-          ./realesrgan-ncnn-vulkan -i ../../input_images -o ../../output_images -s 2 -n realesrgan-x4plus
-          cd ../../
+          chmod +x upscayl_engine/realesrgan-ncnn-vulkan
 
-      # 6. Compress the output into a single ZIP file
-      - name: Zip Upscaled Images
+      - name: Run Upscale Demo
         run: |
-          zip -j upscaled_images.zip output_images/*
-
-      # 7. Upload the final zip file as a GitHub Artifact
-      - name: Upload Upscaled Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: upscaled-images-package
-          path: upscaled_images.zip
-          retention-days: 5
+          ./upscayl_engine/realesrgan-ncnn-vulkan -i upscayl_engine/input.jpg -o upscayl_engine/output.jpg -n realesrgan-x4plus
