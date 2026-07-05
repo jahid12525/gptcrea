@@ -1,4 +1,4 @@
-name: Real-ESRGAN Python Fix
+name: Real-ESRGAN Node.js CPU Pipeline
 
 on:
   workflow_dispatch:
@@ -14,19 +14,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: '3.10'
+          node-version: 22
+          cache: 'npm'
 
-      - name: Install Dependencies
+      - name: Install Node Dependencies
         run: |
-          # Lock versions to match legacy basicsr requirements
-          pip install torch==2.0.1 torchvision==0.15.2
-          pip install basicsr
-          pip install git+https://github.com/xinntao/Real-ESRGAN.git
+          npm install @tensorflow/tfjs-node upscaler @upscalerjs/default-model
 
-      - name: Run Upscale Processing
+      - name: Download and Extract Source Zip
         run: |
-          # Use CPU flag explicitly
-          python -m realesrgan.inference -n RealESRGAN_x4plus -i input.jpg -o output.jpg --fp32
+          # 1. Fetch the zip bundle containing your images
+          wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+          
+          # 2. Extract files into the current workspace directory root
+          unzip realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+
+      - name: Run Upscale Script
+        run: node upscale.js
