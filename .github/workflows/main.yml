@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       dropbox_url:
-        description: 'https://www.dropbox.com/scl/fi/yad4k7z41i4pknwemqgoe/sw-1.zip?rlkey=jkek681un0vyl4ihyrm66qa24&st=45r1t3ie&dl=1'
+        description: 'Paste your Dropbox zip link here'
         required: true
         type: string
 
@@ -20,7 +20,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          # Explicitly disable caching routines to prevent missing lockfile lookups
           cache: ''
 
       - name: Install Node Dependencies
@@ -42,3 +41,10 @@ jobs:
 
       - name: Run Batch Upscale Script
         run: node upscale.js
+
+      - name: Upload Upscaled Images Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: upscaled-images-package
+          path: output_images/
+          retention-days: 7
