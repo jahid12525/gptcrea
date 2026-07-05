@@ -1,10 +1,12 @@
-name: Real-ESRGAN Node.js CPU Pipeline
+name: Dropbox Zip Image Upscaler
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+    inputs:
+      dropbox_url:
+        description: 'https://www.dropbox.com/scl/fi/yad4k7z41i4pknwemqgoe/sw-1.zip?rlkey=jkek681un0vyl4ihyrm66qa24&st=45r1t3ie&dl=1'
+        required: true
+        type: string
 
 jobs:
   upscale:
@@ -24,13 +26,21 @@ jobs:
         run: |
           npm install @tensorflow/tfjs-node upscaler @upscalerjs/default-model
 
-      - name: Download and Extract Source Zip
+      - name: Download and Extract Dropbox Zip
         run: |
-          # 1. Fetch the zip bundle containing your images
-          wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+          # Create target directories for organization
+          mkdir -p input_images
           
-          # 2. Extract files into the current workspace directory root
-          unzip realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+          # Convert standard Dropbox link sharing parameter (?dl=0 to ?dl=1) for direct download access
+          URL="${{ github.event.inputs.dropbox_url }}"
+          DIRECT_URL=$(echo "$URL" | sed 's/\?dl=0/\?dl=1/g' | sed 's/\&dl=0/\&dl=1/g')
+          
+          echo "Downloading package..."
+          wget -O package.zip "$DIRECT_URL"
+          
+          echo "Extracting image files..."
+          # Unzip files directly into input_images folder
+          unzip package.zip -d input_images/ || true
 
-      - name: Run Upscale Script
+      - name: Run Batch Upscale Script
         run: node upscale.js
