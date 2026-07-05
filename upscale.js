@@ -1,3 +1,10 @@
+// --- CRITICAL NODE 24 / TENSORFLOW POLYNOMIAL HOTFIX ---
+const util = require('util');
+if (!util.isNullOrUndefined) {
+  util.isNullOrUndefined = (value) => value === undefined || value === null;
+}
+// ------------------------------------------------------
+
 const fs = require('fs');
 const path = require('path');
 const tf = require('@tensorflow/tfjs-node');
@@ -7,7 +14,7 @@ const defaultModel = require('@upscalerjs/default-model');
 const INPUT_DIR = './input_images';
 const OUTPUT_DIR = './output_images';
 
-// Recursively find all images in extracted folder
+// Recursively look for images inside the extracted structure
 function getImages(dir, fileList = []) {
   if (!fs.existsSync(dir)) return fileList;
   const files = fs.readdirSync(dir);
