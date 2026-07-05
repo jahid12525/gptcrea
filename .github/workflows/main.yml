@@ -20,7 +20,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: 'npm'
+          # Explicitly disable caching routines to prevent missing lockfile lookups
+          cache: ''
 
       - name: Install Node Dependencies
         run: |
@@ -28,10 +29,8 @@ jobs:
 
       - name: Download and Extract Dropbox Zip
         run: |
-          # Create target directories for organization
           mkdir -p input_images
           
-          # Convert standard Dropbox link sharing parameter (?dl=0 to ?dl=1) for direct download access
           URL="${{ github.event.inputs.dropbox_url }}"
           DIRECT_URL=$(echo "$URL" | sed 's/\?dl=0/\?dl=1/g' | sed 's/\&dl=0/\&dl=1/g')
           
@@ -39,7 +38,6 @@ jobs:
           wget -O package.zip "$DIRECT_URL"
           
           echo "Extracting image files..."
-          # Unzip files directly into input_images folder
           unzip package.zip -d input_images/ || true
 
       - name: Run Batch Upscale Script
