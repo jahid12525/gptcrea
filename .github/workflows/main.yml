@@ -1,7 +1,10 @@
-name: Real-ESRGAN Execution Pipeline
+name: Real-ESRGAN CPU Processing Workflow
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   upscale:
@@ -25,6 +28,6 @@ jobs:
         run: |
           chmod +x ./realesrgan-ncnn-vulkan
 
-      - name: Run Upscale Processing
+      - name: Run Upscale Processing (CPU Fallback)
         run: |
-          ./realesrgan-ncnn-vulkan -i input.jpg -o output.jpg -n realesrgan-x4plus
+          ./realesrgan-ncnn-vulkan -i input.jpg -o output.jpg -n realesrgan-x4plus -g -1
