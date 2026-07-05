@@ -35,26 +35,28 @@ jobs:
           echo "Current input files:"
           ls -la input_images/
 
-      # 3. Setup Vulkan (Required for Real-ESRGAN/Upscayl CLI)
+      # 3. Setup Vulkan (Required for Real-ESRGAN / Upscayl CLI)
       - name: Install Vulkan Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libvulkan1 libvulkan-dev vulkan-tools
 
-      # 4. Download and setup the Upscayl CLI Engine (Real-ESRGAN NCNN Vulkan)
+      # 4. Download and setup the correct Upscayl CLI Engine
       - name: Download Upscayl CLI Engine
         run: |
-          wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.2/realesrgan-ncnn-vulkan-20220424-ubuntu.ubuntu-18.04.zip
-          unzip realesrgan-ncnn-vulkan-20220424-ubuntu.ubuntu-18.04.zip -d upscayl_engine
-          chmod +x upscayl_engine/realesrgan-ncnn-vulkan
+          wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+          unzip realesrgan-ncnn-vulkan-20220424-ubuntu.zip -d upscayl_engine
+          chmod +x upscayl_engine/realesrgan-ncnn-vulkan-20220424-ubuntu/realesrgan-ncnn-vulkan
 
       # 5. Process and Upscale images in bulk (2x)
       - name: Run Bulk 2x Upscaling
         run: |
-          cd upscayl_engine
+          # Step inside the extracted engine folder to run the tool natively
+          cd upscayl_engine/realesrgan-ncnn-vulkan-20220424-ubuntu/
+          
           # -i: input folder, -o: output folder, -s: scale factor (2), -n: default ultra-sharp model
-          ./realesrgan-ncnn-vulkan -i ../input_images -o ../output_images -s 2 -n realesrgan-x4plus
-          cd ..
+          ./realesrgan-ncnn-vulkan -i ../../input_images -o ../../output_images -s 2 -n realesrgan-x4plus
+          cd ../../
 
       # 6. Compress the output into a single ZIP file
       - name: Zip Upscaled Images
