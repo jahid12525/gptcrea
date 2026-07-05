@@ -1,0 +1,70 @@
+name: Bulk Image Upscaler (Upscayl CLI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dropbox_url:
+        description: 'Direct Dropbox Link to Input ZIP (Must end in dl=1)'
+        required: true
+        type: string
+
+jobs:
+  upscale:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Clean up workspace and prepare directories
+      - name: Prepare Workspace
+        run: |
+          mkdir -p input_images
+          mkdir -p output_images
+
+      # 2. Download zip from Dropbox and extract it
+      - name: Download and Extract Input Images
+        run: |
+          # Convert standard sharing link to direct download link if needed
+          URL="${{ inputs.dropbox_url }}"
+          DIRECT_URL=$(echo "$URL" | sed 's/dl=0/dl=1/g')
+          
+          echo "Downloading from Dropbox..."
+          curl -L -o input.zip "$DIRECT_URL"
+          
+          echo "Extracting images..."
+          unzip -j input.zip -d input_images/
+          
+          echo "Current input files:"
+          ls -la input_images/
+
+      # 3. Setup Vulkan (Required for Real-ESRGAN/Upscayl CLI)
+      - name: Install Vulkan Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 libvulkan-dev vulkan-tools
+
+      # 4. Download and setup the Upscayl CLI Engine (Real-ESRGAN NCNN Vulkan)
+      - name: Download Upscayl CLI Engine
+        run: |
+          wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.2/realesrgan-ncnn-vulkan-20220424-ubuntu.ubuntu-18.04.zip
+          unzip realesrgan-ncnn-vulkan-20220424-ubuntu.ubuntu-18.04.zip -d upscayl_engine
+          chmod +x upscayl_engine/realesrgan-ncnn-vulkan
+
+      # 5. Process and Upscale images in bulk (2x)
+      - name: Run Bulk 2x Upscaling
+        run: |
+          cd upscayl_engine
+          # -i: input folder, -o: output folder, -s: scale factor (2), -n: default ultra-sharp model
+          ./realesrgan-ncnn-vulkan -i ../input_images -o ../output_images -s 2 -n realesrgan-x4plus
+          cd ..
+
+      # 6. Compress the output into a single ZIP file
+      - name: Zip Upscaled Images
+        run: |
+          zip -j upscaled_images.zip output_images/*
+
+      # 7. Upload the final zip file as a GitHub Artifact
+      - name: Upload Upscaled Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: upscaled-images-package
+          path: upscaled_images.zip
+          retention-days: 5
