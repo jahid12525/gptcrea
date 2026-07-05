@@ -1,4 +1,4 @@
-name: Real-ESRGAN CPU Processing Workflow
+name: Real-ESRGAN Python CPU Workflow
 
 on:
   workflow_dispatch:
@@ -14,20 +14,17 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip libvulkan1
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-with-version: '3.10'
 
-      - name: Download and Extract Real-ESRGAN Engine
+      - name: Install PyTorch and Real-ESRGAN
         run: |
-          wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
-          unzip realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install git+https://github.com/xinntao/Real-ESRGAN.git
 
-      - name: Set Executable Permissions
+      - name: Run Upscale Processing (Pure CPU)
         run: |
-          chmod +x ./realesrgan-ncnn-vulkan
-
-      - name: Run Upscale Processing (CPU Fallback)
-        run: |
-          ./realesrgan-ncnn-vulkan -i input.jpg -o output.jpg -n realesrgan-x4plus -g -1
+          # Uses python engine which works beautifully on standard virtual machines
+          python -m realesrgan.inference -n RealESRGAN_x4plus -i input.jpg -o output.jpg --fp32
