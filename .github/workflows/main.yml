@@ -1,4 +1,4 @@
-name: Real-ESRGAN Python CPU Workflow
+name: Real-ESRGAN Python Fix
 
 on:
   workflow_dispatch:
@@ -14,17 +14,19 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
-          python-with-version: '3.10'
+          python-version: '3.10'
 
-      - name: Install PyTorch and Real-ESRGAN
+      - name: Install Dependencies
         run: |
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          # Lock versions to match legacy basicsr requirements
+          pip install torch==2.0.1 torchvision==0.15.2
+          pip install basicsr
           pip install git+https://github.com/xinntao/Real-ESRGAN.git
 
-      - name: Run Upscale Processing (Pure CPU)
+      - name: Run Upscale Processing
         run: |
-          # Uses python engine which works beautifully on standard virtual machines
+          # Use CPU flag explicitly
           python -m realesrgan.inference -n RealESRGAN_x4plus -i input.jpg -o output.jpg --fp32
