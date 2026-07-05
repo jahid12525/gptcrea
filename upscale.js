@@ -52,16 +52,20 @@ async function main() {
     for (let i = 0; i < images.length; i++) {
       const imagePath = images[i];
       const baseName = path.basename(imagePath, path.extname(imagePath));
-      const outputPath = path.join(OUTPUT_DIR, `${baseName}_upscaled.png`);
       
-      console.log(`[${i + 1}/${images.length}] Processing: ${path.basename(imagePath)}`);
+      // Force output extension to always be .jpg
+      const outputPath = path.join(OUTPUT_DIR, `${baseName}_upscaled.jpg`);
+      
+      console.log(`[${i + 1}/${images.length}] Processing: ${path.basename(imagePath)} -> Converting to JPG`);
 
       const imageBuffer = fs.readFileSync(imagePath);
       const imageTensor = tf.node.decodeImage(imageBuffer, 3);
 
       // Run Upscale operation
       const upscaledTensor = await upscaler.upscale(imageTensor);
-      const outputBuffer = await tf.node.encodePng(upscaledTensor);
+      
+      // Change encoding format to JPEG (quality parameter ranges from 0 to 100)
+      const outputBuffer = await tf.node.encodeJpeg(upscaledTensor, 95);
 
       fs.writeFileSync(outputPath, outputBuffer);
       console.log(`   Saved -> ${outputPath}`);
