@@ -1,4 +1,4 @@
-name: Real-ESRGAN Automation Pipeline
+name: Real-ESRGAN Debug and Setup Pipeline
 
 on:
   workflow_dispatch:
@@ -24,10 +24,16 @@ jobs:
           wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
           unzip realesrgan-ncnn-vulkan-20220424-ubuntu.zip
 
-      - name: Set Executable Permissions
+      - name: Inspect Extracted Layout (Debug)
         run: |
-          chmod +x upscayl_engine/realesrgan-ncnn-vulkan
+          echo "=== Current Working Directory ==="
+          pwd
+          echo "=== Found Files and Locations ==="
+          find . -name "realesrgan-ncnn-vulkan"
+          echo "=== Full Directory Tree ==="
+          find . -maxdepth 3
 
-      - name: Run Upscale Demo
+      - name: Attempt Permission Fix
         run: |
-          ./upscayl_engine/realesrgan-ncnn-vulkan -i upscayl_engine/input.jpg -o upscayl_engine/output.jpg -n realesrgan-x4plus
+          # This line uses a safe fallback to find and chmod the binary automatically
+          find . -type f -name "realesrgan-ncnn-vulkan" -exec chmod +x {} +
