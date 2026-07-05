@@ -64,8 +64,11 @@ async function main() {
       // Run Upscale operation
       const upscaledTensor = await upscaler.upscale(imageTensor);
       
-      // Fixed: Passing correct format arguments string signature
-      const outputBuffer = await tf.node.encodeJpeg(upscaledTensor, 'jpeg', { quality: 95 });
+      // Cast float tensor values to Int32 required by encodeJpeg
+      const intTensor = upscaledTensor.toInt();
+
+      // Encode directly using correct positional options matching the C++ native API layout boundary
+      const outputBuffer = await tf.node.encodeJpeg(intTensor, 'jpeg', { quality: 95 });
 
       fs.writeFileSync(outputPath, outputBuffer);
       console.log(`   Saved -> ${outputPath}`);
@@ -73,6 +76,7 @@ async function main() {
       // Free system memory tensors
       imageTensor.dispose();
       upscaledTensor.dispose();
+      intTensor.dispose();
     }
 
     console.log("All operations completed successfully!");
