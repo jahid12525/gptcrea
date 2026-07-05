@@ -64,8 +64,8 @@ async function main() {
       // Run Upscale operation
       const upscaledTensor = await upscaler.upscale(imageTensor);
       
-      // Change encoding format to JPEG (quality parameter ranges from 0 to 100)
-      const outputBuffer = await tf.node.encodeJpeg(upscaledTensor, 95);
+      // Fixed: Passing correct format arguments string signature
+      const outputBuffer = await tf.node.encodeJpeg(upscaledTensor, 'jpeg', { quality: 95 });
 
       fs.writeFileSync(outputPath, outputBuffer);
       console.log(`   Saved -> ${outputPath}`);
